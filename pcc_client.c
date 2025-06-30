@@ -105,7 +105,7 @@ int main(int argc, char *argv[]) {
     
     ssize_t sent = 0;
     // send the size of the file (N) to the server
-    // loop until all bytes are sent even though its just 4 bytes..
+    // loop until all bytes are sent
     while (sent < sizeof(N)) {
         ssize_t r = write(sock_fd, ((char *)&N) + sent, sizeof(N) - sent);
         if (r < 0) {
@@ -151,7 +151,7 @@ int main(int argc, char *argv[]) {
     while (bytes_received < sizeof(C)) {
         ssize_t r = read(sock_fd, recv_buff + bytes_received, sizeof(C) - bytes_received);
         //printf("Received %zd bytes from server\n", r);
-        if (r < 0) {
+        if (r <= 0) {
             fprintf(stderr, "Error receiving data from server: %s\n", strerror(errno));
             close(file_fd);
             close(sock_fd);

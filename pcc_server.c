@@ -141,7 +141,7 @@ int main(int argc, char *argv[]) {
 
     // enter a loop to accept and process client connections
     while (!interrupted) {
-        //printf("Server is listening on port %s...\n", argv[1]);
+        
         // Accept a connection
         conn_fd = accept(sock_fd, (struct sockaddr *)&peer_addr, &addrsize);
         //printf("Accepted connection from %s:%d\n", inet_ntoa(peer_addr.sin_addr), ntohs(peer_addr.sin_port));
@@ -156,10 +156,14 @@ int main(int argc, char *argv[]) {
 
         // first get N from the client
         uint32_t N = 0; // to store the size of the stream
-        
+        ssize_t r;
         ssize_t bytes_received = 0;
         while (bytes_received < sizeof(N)) {
-            ssize_t r = read(conn_fd, ((char *)&N) + bytes_received, sizeof(N) - bytes_received);
+            
+            do {
+                r = read(conn_fd, ((char *)&N) + bytes_received, sizeof(N) - bytes_received);
+            } while (r < 0 && errno == EINTR);
+
             if (r < 0) {
                 if (errno == ETIMEDOUT || errno == ECONNRESET || errno == EPIPE) {
                     fprintf(stderr, "TCP error occurred while reading from client: %s\n", strerror(errno));
@@ -192,62 +196,65 @@ int main(int argc, char *argv[]) {
 
 
         // now read the stream of bytes from the client
-        if (N == 0) {
-            close(conn_fd);
-            continue; // skip to the next client
-        }
+        
 
         uint32_t curr_cnts[95];
         memset(curr_cnts, 0, sizeof(curr_cnts)); // initialize counts for this client to 0
 
         uint32_t C = 0; // to store the number of printable characters
-        ssize_t bytes_read;
+        ssize_t bytes_read=0;
         bytes_received = 0;
-        while (bytes_received < N  && (bytes_read = read(conn_fd, recv_buff, sizeof(recv_buff))) > 0) {
-            //printf("Received data: %s\n", recv_buff);
-            // Count printable characters
+
+        while (bytes_received < N &&
+               ((bytes_read = read(conn_fd, recv_buff, sizeof(recv_buff))) >= 0 || errno == EINTR)) {
+            if (bytes_read < 0 && errno == EINTR) continue; // retry on EINTR
+
+            // if bytes_read is 0, it means the client disconnected before sending all data
+            if (bytes_read == 0 && bytes_received < N) { 
+                fprintf(stderr, "Client disconnected before sending all data\n");
+                close(conn_fd);
+                conn_fd = -1;
+                break;
+            }
+            // if bytes_read < 0, it means there was an error reading from the client
+            if (bytes_read < 0) {
+                if (errno == ETIMEDOUT || errno == ECONNRESET || errno == EPIPE) {
+                    fprintf(stderr, "TCP error occurred while reading from client: %s\n", strerror(errno));
+                    close(conn_fd);
+                    conn_fd = -1;
+                    break;
+                } else {
+                    fprintf(stderr, "Error reading from client: %s\n", strerror(errno));
+                    close(conn_fd);
+                    exit(1);
+                }
+            }
+
             for (size_t i = 0; i < bytes_read; i++) {
                 if (32 <= recv_buff[i] && recv_buff[i] <= 126) {
                     curr_cnts[recv_buff[i] - 32]++; // increment the count for the printable character
                     C++; // increment the total count of printable characters
-                    //printf("Received char '%c' from client\n", recv_buff[i]);
                 }
-
             }
+
             bytes_received += bytes_read;
+        }
+
+        // if we didn't receive enough bytes, it means the client disconnected before sending all data
+        // so we skip to the next client
+        if (bytes_received < N) continue;
         
-        }
-
-
-        if (bytes_read == 0 && bytes_received < N) {
-            fprintf(stderr, "Client disconnected before sending all data\n");
-            close(conn_fd);
-            conn_fd = -1; // reset the connection fd for the next iteration
-            continue; // skip to the next client
-        }
-
-        if (bytes_read < 0) {
-            if (errno == ETIMEDOUT || errno == ECONNRESET || errno == EPIPE) {
-                fprintf(stderr, "TCP error occurred while reading from client: %s\n", strerror(errno));
-                close(conn_fd);
-                conn_fd = -1; // reset the connection fd for the next iteration
-                continue; // exit the loop to handle the next client
-            }
-            else {
-                // if the error is not a TCP error, print the error and exit
-                fprintf(stderr, "Error reading from client: %s\n", strerror(errno));
-                close(conn_fd);
-                exit(1);
-            }
-        }
         
         //printf("Received %zd bytes from client\n", bytes_received);
+
+
         // Send C to the client
-        
         uint32_t C_net = htonl(C); // convert to network byte order
         ssize_t sent = 0;
         while (sent < sizeof(C_net)) {
-            ssize_t r = write(conn_fd, ((char *)&C_net) + sent, sizeof(C_net) - sent);
+            do {
+                r = write(conn_fd, ((char *)&C_net) + sent, sizeof(C_net) - sent);
+            } while (r < 0 && errno == EINTR);
             
             if (r < 0) {
                 if (errno == ETIMEDOUT || errno == ECONNRESET || errno == EPIPE) {
@@ -288,7 +295,7 @@ int main(int argc, char *argv[]) {
         conn_fd = -1; // reset the connection fd for the next iteration
     }
 
-    // print the counts of printable characters in pcc_total
+    // print the counts of printable characters in pcc_total when we stop processing clients
     for (size_t i = 0; i < 95; i++) {
         if (pcc_total[i] > 0) {
             printf("char '%c' : %u times\n", (char)(i + 32), pcc_total[i]);

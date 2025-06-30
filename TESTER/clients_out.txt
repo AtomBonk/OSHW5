@@ -1,0 +1,40 @@
+===== testfile_empty =====
+# of printable characters: 0
+
+==========
+
+===== testfile_printable =====
+# of printable characters: 26
+
+==========
+
+===== testfile_nonprint =====
+# of printable characters: 0
+
+==========
+
+===== testfile_bin =====
+# of printable characters: 376
+
+==========
+
+===== testfile_large_printable =====
+# of printable characters: 28813
+
+==========
+
+===== testfile_all_ascii =====
+# of printable characters: 95
+
+==========
+
+===== testfile_1000A =====
+# of printable characters: 1000
+
+==========
+
+===== testfile_1000nonprint =====
+# of printable characters: 0
+
+==========
+
